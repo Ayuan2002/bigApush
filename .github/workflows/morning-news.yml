@@ -2,8 +2,8 @@ name: 早间新闻
 
 on:
   schedule:
-    # 每天新加坡时间 08:00（UTC 00:00）运行
-    - cron: '0 0 * * *'
+    # 每天北京时间 10:00（UTC 02:00）运行
+    - cron: '0 2 * * *'
   # 支持在 GitHub Actions 页面手动测试
   workflow_dispatch:
 
@@ -29,24 +29,23 @@ jobs:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: python daily_news.py
 
-      # 任何前面的步骤失败，都自动通过飞书报警
       - name: Notify failure to Feishu
         if: ${{ failure() }}
+        continue-on-error: true
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           GITHUB_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$FEISHU_WEBHOOK" ]; then
             echo "FEISHU_WEBHOOK 未设置，无法发送失败报警"
-            exit 1
+            exit 0
           fi
 
           MESSAGE="❌ 早间新闻 Workflow 执行失败\n\n仓库：${GITHUB_REPOSITORY}\n分支：${GITHUB_REF_NAME}\n运行编号：${GITHUB_RUN_NUMBER}\n时间：$(date -u '+%Y-%m-%d %H:%M:%S UTC')\n\n请检查 GitHub Actions：${GITHUB_RUN_URL}"
 
           python - "$FEISHU_WEBHOOK" "$MESSAGE" <<'PY'
-          import json
-          import sys
           import requests
+          import sys
 
           webhook = sys.argv[1]
           message = sys.argv[2]
