@@ -2,7 +2,9 @@ name: 晚间新闻
 
 on:
   schedule:
-    - cron: '30 14 * * *'
+    # 每天北京时间 20:00（UTC 12:00）运行
+    - cron: '0 12 * * *'
+  # 支持在 GitHub Actions 页面手动测试
   workflow_dispatch:
 
 jobs:
@@ -10,13 +12,52 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      - run: pip install requests
+
+      - name: Install dependencies
+        run: pip install requests
+
       - name: Push evening news
         env:
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: python evening_news.py
+
+      - name: Notify failure to Feishu
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          GITHUB_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$FEISHU_WEBHOOK" ]; then
+            echo "FEISHU_WEBHOOK 未设置，无法发送失败报警"
+            exit 0
+          fi
+
+          MESSAGE="❌ 晚间新闻 Workflow 执行失败\n\n仓库：${GITHUB_REPOSITORY}\n分支：${GITHUB_REF_NAME}\n运行编号：${GITHUB_RUN_NUMBER}\n时间：$(date -u '+%Y-%m-%d %H:%M:%S UTC')\n\n请检查 GitHub Actions：${GITHUB_RUN_URL}"
+
+          python - "$FEISHU_WEBHOOK" "$MESSAGE" <<'PY'
+          import requests
+          import sys
+
+          webhook = sys.argv[1]
+          message = sys.argv[2]
+
+          response = requests.post(
+              webhook,
+              json={"msg_type": "text", "content": {"text": message}},
+              timeout=10,
+          )
+          response.raise_for_status()
+          result = response.json()
+          if result.get("code") != 0:
+              raise RuntimeError(f"飞书返回错误: {result}")
+          print("✅ 失败报警已发送到飞书")
+          PY
